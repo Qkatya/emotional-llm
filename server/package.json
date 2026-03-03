@@ -1,0 +1,15 @@
+{
+  "name": "emotional-chat-server",
+  "version": "1.0.0",
+  "description": "WebSocket proxy to OpenAI Realtime API",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "ws": "^8.18.0"
+  }
+}

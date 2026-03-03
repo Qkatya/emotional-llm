@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Emotional Gemini – Realtime Conversation</title>
+  <link rel="stylesheet" href="/main.css" />
+</head>
+<body>
+  <header>
+    <h1>Emotional Gemini</h1>
+    <p>Realtime conversation with audio + facial blendshapes (webcam or Q)</p>
+  </header>
+
+  <main>
+    <section class="panel controls-panel">
+      <h2>Session</h2>
+      <button id="connect-btn" type="button">Connect</button>
+      <button id="disconnect-btn" type="button" disabled>Disconnect</button>
+      <span id="connection-status" class="status">Disconnected</span>
+    </section>
+
+    <section class="panel audio-panel">
+      <h2>Audio</h2>
+      <div class="audio-transcripts-row">
+        <div class="audio-input-column">
+          <div class="mic-level-section">
+            <h3>Microphone level (always on)</h3>
+            <div id="mic-level-bar" class="mic-level-bar" aria-label="Mic level">
+              <div id="mic-level-fill" class="mic-level-fill"></div>
+            </div>
+            <p id="mic-level-status" class="muted">Allow microphone to see level</p>
+          </div>
+          <div class="transcript-box">
+            <h3>Input audio</h3>
+            <p id="input-audio-status" class="muted">—</p>
+            <h4>Transcription (input)</h4>
+            <div id="input-transcript" class="transcript-text transcript-log">—</div>
+          </div>
+        </div>
+        <div class="transcript-box">
+          <h3>Output audio</h3>
+          <p id="output-audio-status" class="muted">—</p>
+          <h4>Transcription (output)</h4>
+          <p id="output-transcript" class="transcript-text">—</p>
+        </div>
+      </div>
+      <div id="output-error" class="output-error hidden"></div>
+    </section>
+
+    <section class="panel log-panel">
+      <h2>Conversation Log</h2>
+      <div id="conversation-log" class="log-scroll"></div>
+    </section>
+
+    <section class="panel input-panel">
+      <h2>Input</h2>
+      <div class="input-row">
+        <div class="video-wrap">
+          <video id="video" playsinline muted autoplay></video>
+          <div id="video-placeholder" class="placeholder">Allow camera to start</div>
+        </div>
+        <div class="blendshapes-columns">
+          <div class="blendshapes-wrap">
+            <h3>From camera (MediaPipe)</h3>
+            <div id="blendshapes-camera" class="blendshapes-list"></div>
+          </div>
+          <div class="blendshapes-wrap">
+            <h3>From Q <span id="websocket-status" class="websocket-status websocket-status--disconnected">Connecting…</span></h3>
+            <div id="blendshapes-websocket" class="blendshapes-list"></div>
+          </div>
+        </div>
+      </div>
+      <div class="source-toggle-wrap">
+        <span class="source-toggle-label">Blendshape source:</span>
+        <label class="toggle-option">
+          <input type="radio" name="blendshape-source" value="camera" checked />
+          <span>Camera (MediaPipe)</span>
+        </label>
+        <label class="toggle-option">
+          <input type="radio" name="blendshape-source" value="websocket" />
+          <span>Q</span>
+        </label>
+        <label class="toggle-option">
+          <input type="checkbox" id="simulate-smiling" />
+          <span>Test: simulate smiling</span>
+        </label>
+        <label class="toggle-option">
+          <input type="checkbox" id="simulate-not-smiling" />
+          <span>Test: not smiling</span>
+        </label>
+      </div>
+      <div class="debug-smile-panel" style="margin-top: 0.5rem; padding: 0.4rem 0.8rem; background: #1a1a2e; border-radius: 6px; font-family: monospace; font-size: 0.85rem; color: #aaa;">
+        Sending mouthSmileRight: <strong id="debug-smile-value" style="color: #fff;">--</strong>
+      </div>
+      <div class="chosen-panel">
+        <h3>Preview (mouthSmile, jawOpen, eyeBlinkRight, mouthRight)</h3>
+        <div id="chosen-bars" class="chosen-bars"></div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="/main.js"></script>
+</body>
+</html>
