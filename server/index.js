@@ -145,7 +145,7 @@ wss.on('connection', (clientWs, req) => {
                 format: { type: 'audio/pcm', rate: 24000 },
                 turn_detection: {
                   type: 'semantic_vad',
-                  interrupt_response: false,
+                  interrupt_response: true,
                 },
               },
               output: {
@@ -208,7 +208,8 @@ wss.on('connection', (clientWs, req) => {
         sendToClient(clientWs, { serverContent: { interrupted: true } });
         if (pendingResponseCreate) {
           pendingResponseCreate = false;
-          sendCommitThenResponseCreate(openaiWs);
+          // Do not commit: buffer is empty after interrupt. Only start the deferred response.
+          openaiWs.send(JSON.stringify({ type: 'response.create' }));
           responseInProgress = true;
         }
         return;
