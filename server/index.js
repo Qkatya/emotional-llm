@@ -77,9 +77,9 @@ function connectToOpenAI(openaiApiKey) {
 }
 
 function sendToClient(clientWs, obj) {
-  if (clientWs.readyState === WebSocket.OPEN) {
-    clientWs.send(JSON.stringify(obj));
-  }
+  if (clientWs.readyState !== WebSocket.OPEN) return;
+  const payload = { ...obj, serverTs: Date.now() };
+  clientWs.send(JSON.stringify(payload));
 }
 
 /** Send input_audio_buffer.commit then response.create so user audio is committed before generation. */
@@ -100,7 +100,7 @@ wss.on('connection', (clientWs, req) => {
   console.log(`[${new Date().toISOString()}] Client connected from ${clientAddress}`);
 
   if (!apiKey) {
-    clientWs.send(JSON.stringify({ error: 'OPENAI_API_KEY not configured' }));
+    sendToClient(clientWs, { error: 'OPENAI_API_KEY not configured' });
     clientWs.close();
     return;
   }
@@ -321,6 +321,16 @@ wss.on('connection', (clientWs, req) => {
     try {
       const msg = JSON.parse(data.toString());
       let payload = null;
+
+      // Trace: server received from client (so client can show "Server recv" with server timestamp). Skip audio chunks to reduce log noise.
+      if (msg.type === 'text' && msg.data != null) {
+        const turnComplete = msg.turnComplete === true;
+        const isReaction = String(msg.data).startsWith('REACTION WINDOW');
+        const summary = isReaction ? `text REACTION WINDOW turnComplete=${turnComplete}` : `text turnComplete=${turnComplete}`;
+        sendToClient(clientWs, { trace: { event: 'server_received_client', type: 'text', summary, ts: Date.now() } });
+      } else if (msg.audioStreamEnd === true) {
+        sendToClient(clientWs, { trace: { event: 'server_received_client', type: 'audioStreamEnd', summary: 'commit', ts: Date.now() } });
+      }
 
       if (msg.type === 'audio' && msg.data != null) {
         payload = JSON.stringify({

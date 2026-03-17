@@ -59,8 +59,10 @@ const micLevelFill = document.getElementById('mic-level-fill');
 const micLevelStatus = document.getElementById('mic-level-status');
 const debugSmileValueEl = document.getElementById('debug-smile-value');
 const convLogEl = document.getElementById('conversation-log');
+const traceLogEl = document.getElementById('trace-log');
 
 let socket = null;
+let connectionStartTs = 0;
 let alwaysOnStream = null;
 let alwaysOnContext = null;
 let alwaysOnSource = null;
@@ -120,6 +122,60 @@ function clearError() {
 function formatTime(date = new Date()) {
   return date.toTimeString().slice(0, 8);
 }
+
+function formatTs(ts) {
+  if (ts == null || ts === undefined) return '—';
+  const d = new Date(ts);
+  return d.toTimeString().slice(0, 12);
+}
+
+/** Append one row to the message trace log. Order is chronological (by when client adds the entry). */
+function appendTraceEntry({ direction, type, summary, clientTs, serverTs }) {
+  if (!traceLogEl) return;
+  const entry = document.createElement('div');
+  entry.className = `trace-entry trace-entry--${direction.replace(/\s+/g, '-').toLowerCase().replace(/[()]/g, '')}`;
+  const clientStr = formatTs(clientTs);
+  const serverStr = formatTs(serverTs);
+
+  const isOutputTranscription = type === 'outputTranscription';
+  const isInputTranscription = type === 'inputTranscription';
+  const isModelTurn = type === 'modelTurn';
+  const isTurnComplete = type === 'turnComplete';
+  entry.appendChild(document.createTextNode(`[${direction}] ${type} `));
+  if (isOutputTranscription && summary) {
+    const span = document.createElement('span');
+    span.className = 'trace-transcription';
+    span.textContent = summary;
+    entry.appendChild(span);
+    entry.appendChild(document.createTextNode(' '));
+  } else if (isInputTranscription && summary) {
+    const span = document.createElement('span');
+    span.className = 'trace-input-transcription';
+    span.textContent = summary;
+    entry.appendChild(span);
+    entry.appendChild(document.createTextNode(' '));
+  } else if (isModelTurn && summary) {
+    const span = document.createElement('span');
+    span.className = 'trace-model-turn';
+    span.textContent = summary;
+    entry.appendChild(span);
+    entry.appendChild(document.createTextNode(' '));
+  } else if (isTurnComplete && summary) {
+    const span = document.createElement('span');
+    span.className = 'trace-turn-complete';
+    span.textContent = summary;
+    entry.appendChild(span);
+    entry.appendChild(document.createTextNode(' '));
+  } else if (summary) {
+    entry.appendChild(document.createTextNode(summary + ' '));
+  }
+  if (clientTs != null) entry.appendChild(document.createTextNode(`client=${clientStr} `));
+  if (serverTs != null) entry.appendChild(document.createTextNode(`server=${serverStr}`));
+
+  traceLogEl.appendChild(entry);
+  traceLogEl.scrollTop = traceLogEl.scrollHeight;
+}
+
 
 function logSentText(text, turnComplete = null) {
   if (!convLogEl) return;
@@ -342,9 +398,7 @@ function startAlwaysOnMic() {
       micLevel = computeRMS(input);
 
       if (socket && socket.readyState === WebSocket.OPEN && setupReceived) {
-        if (isPlayingAudio) {
-          audioBuffer = [];
-        } else {
+        // Always send mic audio so the API can detect user speech and interrupt when interrupt_response: true
         audioBuffer.push(new Float32Array(input));
         const totalSamples = audioBuffer.reduce((acc, b) => acc + b.length, 0);
         const needed = (ctx.sampleRate / SEND_SAMPLE_RATE) * TARGET_CHUNK_SAMPLES;
@@ -364,10 +418,10 @@ function startAlwaysOnMic() {
           endOfSpeechTimer = window.setTimeout(() => {
             endOfSpeechTimer = null;
             if (socket && socket.readyState === WebSocket.OPEN && setupReceived && !isPlayingAudio) {
+              appendTraceEntry({ direction: 'Client sent', type: 'audioStreamEnd', summary: 'commit (end of speech — user transcript will follow)', clientTs: Date.now(), serverTs: null });
               socket.send(JSON.stringify({ audioStreamEnd: true }));
             }
           }, END_OF_SPEECH_SILENCE_MS);
-        }
         }
       }
     };
@@ -473,6 +527,7 @@ function connect() {
   socket = new WebSocket(wsUrl);
 
   socket.onopen = () => {
+    connectionStartTs = Date.now();
     setStatus('Connected', true);
     disconnectBtn.disabled = false;
     outputAudioStatus.textContent = '—';
@@ -489,6 +544,57 @@ function connect() {
         return;
       }
       const msg = JSON.parse(raw);
+
+      // Trace: server received from client (separate message from server)
+      if (msg.trace) {
+        appendTraceEntry({
+          direction: 'Server recv (client)',
+          type: msg.trace.type || 'unknown',
+          summary: msg.trace.summary || '',
+          clientTs: Date.now(),
+          serverTs: msg.trace.ts != null ? msg.trace.ts : null,
+        });
+        return;
+      }
+
+      // For every app message: log Server sent (serverTs) and Client recv (clientTs)
+      const serverTs = msg.serverTs != null ? msg.serverTs : null;
+      const clientTs = Date.now();
+      let traceType = 'message';
+      let traceSummary = '';
+      if (msg.error) {
+        traceType = 'error';
+        traceSummary = String(msg.error).slice(0, 80);
+      } else if (msg.setupComplete !== undefined || msg.setup_complete !== undefined) {
+        traceType = 'setupComplete';
+        traceSummary = 'ready';
+      } else {
+        const sc = msg.serverContent ?? msg.server_content;
+        if (sc) {
+          if (sc.interrupted) {
+            traceType = 'interrupted';
+            traceSummary = 'interrupted';
+          } else if (sc.inputTranscription ?? sc.input_transcription) {
+            traceType = 'inputTranscription';
+            const t = sc.inputTranscription ?? sc.input_transcription;
+            const userText = (t.text != null ? String(t.text) : '').trim();
+            traceSummary = userText ? `User: ${userText.slice(0, 80)}` : 'User: (empty)';
+          } else if (sc.outputTranscription ?? sc.output_transcription) {
+            traceType = 'outputTranscription';
+            const t = sc.outputTranscription ?? sc.output_transcription;
+            traceSummary = (t.text != null ? String(t.text) : '').slice(0, 50);
+          } else if (sc.turnComplete || sc.turn_complete) {
+            traceType = 'turnComplete';
+            traceSummary = 'turnComplete';
+          } else if (sc.modelTurn ?? sc.model_turn) {
+            traceType = 'modelTurn';
+            traceSummary = 'audio delta';
+          }
+        }
+      }
+      appendTraceEntry({ direction: 'Server sent', type: traceType, summary: traceSummary, clientTs: null, serverTs });
+      appendTraceEntry({ direction: 'Client recv', type: traceType, summary: traceSummary, clientTs, serverTs });
+
       if (msg.error) {
         showError(msg.error);
         if (msg.error.includes('OpenAI closed') || msg.error.includes('connection error')) {
@@ -626,6 +732,7 @@ function connect() {
 function disconnect() {
   if (socket) {
     if (endOfSpeechTimer != null) { clearTimeout(endOfSpeechTimer); endOfSpeechTimer = null; }
+    appendTraceEntry({ direction: 'Client sent', type: 'audioStreamEnd', summary: 'commit (disconnect)', clientTs: Date.now(), serverTs: null });
     socket.send(JSON.stringify({ audioStreamEnd: true }));
     socket.close();
     socket = null;
@@ -860,6 +967,7 @@ function tryScheduleTurnCompleteDelay() {
       const text = formatBlendshapesReactionWindow(obj, { left: peakL, right: peakR });
       lastSentMouthSmileLeft = peakL;
       lastSentMouthSmileRight = peakR;
+      appendTraceEntry({ direction: 'Client sent', type: 'text', summary: 'REACTION WINDOW turnComplete=true', clientTs: Date.now(), serverTs: null });
       socket.send(JSON.stringify({ type: 'text', data: text, turnComplete: true }));
       logSentText(text, true);
     }
